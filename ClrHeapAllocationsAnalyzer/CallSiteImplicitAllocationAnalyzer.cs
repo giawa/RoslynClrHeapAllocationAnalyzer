@@ -16,20 +16,22 @@ namespace ClrHeapAllocationAnalyzer
 
         public static DiagnosticDescriptor ValueTypeNonOverridenCallRule = new DiagnosticDescriptor("HeapAnalyzerValueTypeNonOverridenCallRule", "Non-overridden virtual method call on value type", "Non-overridden virtual method call on a value type adds a boxing or constrained instruction", "Performance", DiagnosticSeverity.Warning, true);
 
-        internal static object[] EmptyMessageArgs = { };
+        private static object[] EmptyMessageArgs = { };
+
+        private SyntaxKind[] kinds = new SyntaxKind[] { SyntaxKind.InvocationExpression };
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ParamsParameterRule, ValueTypeNonOverridenCallRule);
 
         public override void Initialize(AnalysisContext context)
         {
-            context.RegisterSyntaxNodeAction(AnalyzeNode, SyntaxKind.InvocationExpression);
+            context.RegisterSyntaxNodeAction(new Action<SyntaxNodeAnalysisContext>(AnalyzeNode), kinds);
         }
 
         private static void AnalyzeNode(SyntaxNodeAnalysisContext context)
         {
             var node = context.Node;
             var semanticModel = context.SemanticModel;
-            Action<Diagnostic> reportDiagnostic = context.ReportDiagnostic;
+            Action<Diagnostic> reportDiagnostic = new Action<Diagnostic>(context.ReportDiagnostic);
             var cancellationToken = context.CancellationToken;
             string filePath = node.SyntaxTree.FilePath;
 

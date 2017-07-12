@@ -13,25 +13,26 @@
     {
         public static DiagnosticDescriptor ReferenceTypeEnumeratorRule = new DiagnosticDescriptor("HeapAnalyzerEnumeratorAllocationRule", "Possible allocation of reference type enumerator", "Non-ValueType enumerator may result in an heap allocation", "Performance", DiagnosticSeverity.Warning, true);
 
-        internal static object[] EmptyMessageArgs = { };
+        private static object[] EmptyMessageArgs = { };
+
+        private static SyntaxKind[] kinds = new SyntaxKind[] { SyntaxKind.ForEachStatement, SyntaxKind.InvocationExpression };
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ReferenceTypeEnumeratorRule);
 
         public override void Initialize(AnalysisContext context)
         {
-            context.RegisterSyntaxNodeAction(AnalyzeNode, SyntaxKind.ForEachStatement, SyntaxKind.InvocationExpression);
+            context.RegisterSyntaxNodeAction(new Action<SyntaxNodeAnalysisContext>(AnalyzeNode), kinds);
         }
 
         private static void AnalyzeNode(SyntaxNodeAnalysisContext context)
         {
             var node = context.Node;
             var semanticModel = context.SemanticModel;
-            Action<Diagnostic> reportDiagnostic = context.ReportDiagnostic;
+            Action<Diagnostic> reportDiagnostic = new Action<Diagnostic>(context.ReportDiagnostic);
             var cancellationToken = context.CancellationToken;
             string filePath = node.SyntaxTree.FilePath;
 
-            var foreachExpression = node as ForEachStatementSyntax;
-            if (foreachExpression != null)
+            if (node is ForEachStatementSyntax foreachExpression)
             {
                 var typeInfo = semanticModel.GetTypeInfo(foreachExpression.Expression, cancellationToken);
                 if (typeInfo.Type == null)
@@ -47,17 +48,16 @@
                 if ((enumerator == null || enumerator.Length == 0) && typeInfo.Type.Interfaces != null)
                 {
                     // 2nd fallback, now we try and find the IEnumerable Interface explicitly
-                    var iEnumerable = typeInfo.Type.Interfaces.Where(i => i.Name == "IEnumerable").ToImmutableArray();
-                    if (iEnumerable != null && iEnumerable.Length > 0)
+                    if (typeInfo.Type.Interfaces.Where(i => i.Name == "IEnumerable").ToImmutableArray() != null && typeInfo.Type.Interfaces.Where(i => i.Name == "IEnumerable").ToImmutableArray().Length > 0)
                     {
-                        enumerator = iEnumerable[0].GetMembers("GetEnumerator");
+                        enumerator = typeInfo.Type.Interfaces.Where(i => i.Name == "IEnumerable").ToImmutableArray()[0].GetMembers("GetEnumerator");
                     }
                 }
 
                 if (enumerator != null && enumerator.Length > 0)
                 {
-                    var methodSymbol = enumerator[0] as IMethodSymbol; // probably should do something better here, hack.
-                    if (methodSymbol != null)
+                    // probably should do something better here, hack.
+                    if (enumerator[0] is IMethodSymbol methodSymbol)
                     {
                         if (methodSymbol.ReturnType.IsReferenceType && methodSymbol.ReturnType.SpecialType != SpecialType.System_Collections_IEnumerator)
                         {
@@ -70,24 +70,23 @@
                 return;
             }
 
-            var invocationExpression = node as InvocationExpressionSyntax;
-            if (invocationExpression != null)
+            if (node is InvocationExpressionSyntax invocationExpression)
             {
                 var methodInfo = semanticModel.GetSymbolInfo(invocationExpression, cancellationToken).Symbol as IMethodSymbol;
-	            if (methodInfo?.ReturnType != null && methodInfo.ReturnType.IsReferenceType)
-	            {
-		            if (methodInfo.ReturnType.AllInterfaces != null)
-		            {
-			            foreach (var @interface in methodInfo.ReturnType.AllInterfaces)
-			            {
-				            if (@interface.SpecialType == SpecialType.System_Collections_Generic_IEnumerator_T || @interface.SpecialType == SpecialType.System_Collections_IEnumerator)
-				            {
-					            reportDiagnostic(Diagnostic.Create(ReferenceTypeEnumeratorRule, invocationExpression.GetLocation(), EmptyMessageArgs));
-					            HeapAllocationAnalyzerEventSource.Logger.EnumeratorAllocation(filePath);
-				            }
-			            }
-		            }
-	            }
+                if (methodInfo?.ReturnType != null && methodInfo.ReturnType.IsReferenceType)
+                {
+                    if (methodInfo.ReturnType.AllInterfaces != null)
+                    {
+                        foreach (var @interface in methodInfo.ReturnType.AllInterfaces)
+                        {
+                            if (@interface.SpecialType == SpecialType.System_Collections_Generic_IEnumerator_T || @interface.SpecialType == SpecialType.System_Collections_IEnumerator)
+                            {
+                                reportDiagnostic(Diagnostic.Create(ReferenceTypeEnumeratorRule, invocationExpression.GetLocation(), EmptyMessageArgs));
+                                HeapAllocationAnalyzerEventSource.Logger.EnumeratorAllocation(filePath);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

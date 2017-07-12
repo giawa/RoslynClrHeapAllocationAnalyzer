@@ -22,13 +22,9 @@
 
         public static DiagnosticDescriptor LetCauseRule = new DiagnosticDescriptor("HeapAnalyzerLetClauseRule", "Let clause induced allocation", "Let clause induced allocation", "Performance", DiagnosticSeverity.Info, true);
 
-        internal static object[] EmptyMessageArgs = { };
+        private static object[] EmptyMessageArgs = { };
 
-        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(LetCauseRule, InitializerCreationRule, ImplicitArrayCreationRule, AnonymousNewObjectRule, NewObjectRule, NewArrayRule);
-
-        public override void Initialize(AnalysisContext context)
-        {
-            var kinds = new[]
+        private static SyntaxKind[] kinds = new SyntaxKind[]
             {
                 SyntaxKind.ObjectCreationExpression,            // Used
                 SyntaxKind.AnonymousObjectCreationExpression,   // Used
@@ -40,14 +36,19 @@
                 SyntaxKind.ImplicitArrayCreationExpression,     // Used (this then contains an ArrayInitializerExpression)
                 SyntaxKind.LetClause                            // Used
             };
-            context.RegisterSyntaxNodeAction(AnalyzeNode, kinds);
+
+        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(new DiagnosticDescriptor[] { LetCauseRule, InitializerCreationRule, ImplicitArrayCreationRule, AnonymousNewObjectRule, NewObjectRule, NewArrayRule });
+
+        public override void Initialize(AnalysisContext context)
+        {
+            context.RegisterSyntaxNodeAction(new Action<SyntaxNodeAnalysisContext>(AnalyzeNode), kinds);
         }
 
         private static void AnalyzeNode(SyntaxNodeAnalysisContext context)
         {
             var node = context.Node;
             var semanticModel = context.SemanticModel;
-            Action<Diagnostic> reportDiagnostic = context.ReportDiagnostic;
+            Action<Diagnostic> reportDiagnostic = new Action<Diagnostic>(context.ReportDiagnostic);
             var cancellationToken = context.CancellationToken;
             string filePath = node.SyntaxTree.FilePath;
 
@@ -71,32 +72,28 @@
                 }
             }
 
-            var implicitArrayExpression = node as ImplicitArrayCreationExpressionSyntax;
-            if (implicitArrayExpression != null)
+            if (node is ImplicitArrayCreationExpressionSyntax implicitArrayExpression)
             {
                 reportDiagnostic(Diagnostic.Create(ImplicitArrayCreationRule, implicitArrayExpression.NewKeyword.GetLocation(), EmptyMessageArgs));
                 HeapAllocationAnalyzerEventSource.Logger.NewImplicitArrayCreationExpression(filePath);
                 return;
             }
 
-            var newAnon = node as AnonymousObjectCreationExpressionSyntax;
-            if (newAnon != null)
+            if (node is AnonymousObjectCreationExpressionSyntax newAnon)
             {
                 reportDiagnostic(Diagnostic.Create(AnonymousNewObjectRule, newAnon.NewKeyword.GetLocation(), EmptyMessageArgs));
                 HeapAllocationAnalyzerEventSource.Logger.NewAnonymousObjectCreationExpression(filePath);
                 return;
             }
 
-            var newArr = node as ArrayCreationExpressionSyntax;
-            if (newArr != null)
+            if (node is ArrayCreationExpressionSyntax newArr)
             {
                 reportDiagnostic(Diagnostic.Create(NewArrayRule, newArr.NewKeyword.GetLocation(), EmptyMessageArgs));
                 HeapAllocationAnalyzerEventSource.Logger.NewArrayExpression(filePath);
                 return;
             }
 
-            var newObj = node as ObjectCreationExpressionSyntax;
-            if (newObj != null)
+            if (node is ObjectCreationExpressionSyntax newObj)
             {
                 var typeInfo = semanticModel.GetTypeInfo(newObj, cancellationToken);
                 if (typeInfo.ConvertedType != null && typeInfo.ConvertedType.TypeKind != TypeKind.Error && typeInfo.ConvertedType.IsReferenceType)
@@ -107,8 +104,7 @@
                 return;
             }
 
-            var letKind = node as LetClauseSyntax;
-            if (letKind != null)
+            if (node is LetClauseSyntax letKind)
             {
                 reportDiagnostic(Diagnostic.Create(LetCauseRule, letKind.LetKeyword.GetLocation(), EmptyMessageArgs));
                 HeapAllocationAnalyzerEventSource.Logger.LetClauseExpression(filePath);

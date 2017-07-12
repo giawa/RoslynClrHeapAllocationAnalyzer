@@ -19,13 +19,15 @@
 
         public static DiagnosticDescriptor LambaOrAnonymousMethodInGenericMethodRule = new DiagnosticDescriptor("HeapAnalyzerLambdaInGenericMethodRule", "Lambda or anonymous method in a generic method allocates a delegate instance", "Considering moving this out of the generic method", "Performance", DiagnosticSeverity.Warning, true);
 
-        internal static object[] EmptyMessageArgs = { };
+        private static object[] EmptyMessageArgs = { };
+
+        private static SyntaxKind[] kinds = new SyntaxKind[] { SyntaxKind.ParenthesizedLambdaExpression, SyntaxKind.SimpleLambdaExpression, SyntaxKind.AnonymousMethodExpression };
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ClosureCaptureRule, ClosureDriverRule, LambaOrAnonymousMethodInGenericMethodRule);
 
         public override void Initialize(AnalysisContext context)
         {
-            context.RegisterSyntaxNodeAction(AnalyzeNode, SyntaxKind.ParenthesizedLambdaExpression, SyntaxKind.SimpleLambdaExpression, SyntaxKind.AnonymousMethodExpression);
+            context.RegisterSyntaxNodeAction(new Action<SyntaxNodeAnalysisContext>(AnalyzeNode), kinds);
         }
 
         private static void AnalyzeNode(SyntaxNodeAnalysisContext context)
@@ -33,7 +35,7 @@
             var node = context.Node;
             var semanticModel = context.SemanticModel;
             var cancellationToken = context.CancellationToken;
-            Action<Diagnostic> reportDiagnostic = context.ReportDiagnostic;
+            Action<Diagnostic> reportDiagnostic = new Action<Diagnostic>(context.ReportDiagnostic);
 
             var anonExpr = node as AnonymousMethodExpressionSyntax;
             if (anonExpr?.Block?.ChildNodes() != null && anonExpr.Block.ChildNodes().Any())
@@ -43,16 +45,14 @@
                 return;
             }
 
-            var lambdaExpr = node as SimpleLambdaExpressionSyntax;
-            if (lambdaExpr != null)
+            if (node is SimpleLambdaExpressionSyntax lambdaExpr)
             {
                 GenericMethodCheck(semanticModel, node, lambdaExpr.ArrowToken.GetLocation(), reportDiagnostic, cancellationToken);
                 ClosureCaptureDataFlowAnalysis(semanticModel.AnalyzeDataFlow(lambdaExpr), reportDiagnostic, lambdaExpr.ArrowToken.GetLocation());
                 return;
             }
 
-            var parenLambdaExpr = node as ParenthesizedLambdaExpressionSyntax;
-            if (parenLambdaExpr != null)
+            if (node is ParenthesizedLambdaExpressionSyntax parenLambdaExpr)
             {
                 GenericMethodCheck(semanticModel, node, parenLambdaExpr.ArrowToken.GetLocation(), reportDiagnostic, cancellationToken);
                 ClosureCaptureDataFlowAnalysis(semanticModel.AnalyzeDataFlow(parenLambdaExpr), reportDiagnostic, parenLambdaExpr.ArrowToken.GetLocation());
@@ -88,8 +88,7 @@
         {
             if (semanticModel.GetSymbolInfo(node, cancellationToken).Symbol != null)
             {
-                var containingSymbol = semanticModel.GetSymbolInfo(node, cancellationToken).Symbol.ContainingSymbol as IMethodSymbol;
-                if (containingSymbol != null && containingSymbol.Arity > 0)
+                if (semanticModel.GetSymbolInfo(node, cancellationToken).Symbol.ContainingSymbol is IMethodSymbol containingSymbol && containingSymbol.Arity > 0)
                 {
                     reportDiagnostic(Diagnostic.Create(LambaOrAnonymousMethodInGenericMethodRule, location, EmptyMessageArgs));
                 }

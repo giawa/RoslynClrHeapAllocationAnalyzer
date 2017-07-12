@@ -20,13 +20,9 @@
 
         public static DiagnosticDescriptor MethodGroupAllocationRule = new DiagnosticDescriptor("HeapAnalyzerMethodGroupAllocationRule", "Delegate allocation from a method group", "This will allocate a delegate instance", "Performance", DiagnosticSeverity.Warning, true);
 
-        internal static object[] EmptyMessageArgs = { };
+        private static object[] EmptyMessageArgs = { };
 
-        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ValueTypeToReferenceTypeConversionRule, DelegateOnStructInstanceRule, MethodGroupAllocationRule);
-
-        public override void Initialize(AnalysisContext context)
-        {
-            var kinds = new[]
+        private static SyntaxKind[] kinds = new SyntaxKind[]
             {
                 SyntaxKind.SimpleAssignmentExpression,
                 SyntaxKind.ReturnStatement,
@@ -39,7 +35,12 @@
                 SyntaxKind.EqualsValueClause,
                 SyntaxKind.Argument
             };
-            context.RegisterSyntaxNodeAction(AnalyzeNode, kinds);
+
+        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ValueTypeToReferenceTypeConversionRule, DelegateOnStructInstanceRule, MethodGroupAllocationRule);
+
+        public override void Initialize(AnalysisContext context)
+        {
+            context.RegisterSyntaxNodeAction(new Action<SyntaxNodeAnalysisContext>(AnalyzeNode), kinds);
         }
 
         private static void AnalyzeNode(SyntaxNodeAnalysisContext context)
@@ -47,7 +48,7 @@
             var node = context.Node;
             var semanticModel = context.SemanticModel;
             var cancellationToken = context.CancellationToken;
-            Action<Diagnostic> reportDiagnostic = context.ReportDiagnostic;
+            Action<Diagnostic> reportDiagnostic = new Action<Diagnostic>(context.ReportDiagnostic);
             string filePath = node.SyntaxTree.FilePath;
 
             // this.fooObjCall(10);
@@ -230,8 +231,7 @@
                 {
                     if (node.IsKind(SyntaxKind.IdentifierName))
                     {
-                        var symbol = semanticModel.GetSymbolInfo(node, cancellationToken).Symbol as IMethodSymbol;
-                        if (symbol != null)
+                        if (semanticModel.GetSymbolInfo(node, cancellationToken).Symbol is IMethodSymbol symbol)
                         {
                             reportDiagnostic(Diagnostic.Create(MethodGroupAllocationRule, location, EmptyMessageArgs));
                             HeapAllocationAnalyzerEventSource.Logger.MethodGroupAllocation(filePath);
@@ -240,8 +240,7 @@
                     else if (node.IsKind(SyntaxKind.SimpleMemberAccessExpression))
                     {
                         var memberAccess = node as MemberAccessExpressionSyntax;
-                        var symbol = semanticModel.GetSymbolInfo(memberAccess.Name, cancellationToken).Symbol as IMethodSymbol;
-                        if (symbol != null)
+                        if (semanticModel.GetSymbolInfo(memberAccess.Name, cancellationToken).Symbol is IMethodSymbol symbol)
                         {
                             reportDiagnostic(Diagnostic.Create(MethodGroupAllocationRule, location, EmptyMessageArgs));
                             HeapAllocationAnalyzerEventSource.Logger.MethodGroupAllocation(filePath);
